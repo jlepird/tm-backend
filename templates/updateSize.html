@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %} Talent Marketplace Assignment Team Interface
+{% block subject %}
+{% endblock %}
+{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block content %}
+
+<div align="center">
+<form action="/refresh" method="post">
+<h3 > <em> Scale Example Problem </em> </h3>
+<div style="display: inline-block">
+<p> <em> Number of Airmen: </em> </p> 
+<input type="text" name="n" value = {{n}}>
+</div>
+<div style="display: inline-block">
+<p> <em> Number of Billets: </em> </p>
+<input type="text" name="m" value = {{m}} >
+</div>
+
+<div style="display: inline-block">
+<input type="submit" value="Update">
+
+</div>
+</form>
+</div>
+
+
+
+{% endblock %}

@@ -1,0 +1,21 @@
+{
+  "name": "tm-backend",
+  "authors": [],
+  "description": "",
+  "main": "routes.py",
+  "license": "",
+  "homepage": "",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "jquery": "^3.2.1",
+    "d3": "^4.8.0",
+    "datatables": "DataTables#^1.10.13"
+  }
+}
