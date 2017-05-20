@@ -1,4 +1,6 @@
 ---
-buildpack: https://github.com/cloudfoundry/python-buildpack
 applications:
 - name: tm-backend
+  buildpack: https://github.com/cloudfoundry/python-buildpack
+  services:
+    - af-assignments-db-dev

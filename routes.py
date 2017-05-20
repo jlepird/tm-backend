@@ -1,139 +1,169 @@
 import os
 import flask
-from flask.ext.bower import Bower
 import psycopg2
 import urlparse
 import random
 import names
 import hashlib
+import itertools
 
 from pulp import *
 
 app = flask.Flask(__name__)
-
-Bower(app)
-
 # Set up our connection for global use
-conn = psycopg2.connect(database = os.environ["DATABASE_URL"])
+db = os.environ["DATABASE_URL"]
+if "VCAP_SERVICES" not in os.environ: # then running locally
+	conn = psycopg2.connect(database=db)
+else:
+	res = urlparse.urlparse(os.environ["DATABASE_URL"])
+	conn = psycopg2.connect(
+		database=res.path[1:],
+		user=res.username,
+		password=res.password,
+		host=res.hostname
+	)
 cur = conn.cursor()
 
-# Random billet generator.
-def hash(my_str):
-	h = hashlib.new("md5")
-	h.update(my_str)
-	return h.hexdigest()
+constraints = ["FORCE", "FORBID", "FILL", "VACATE"]
 
-@app.route('/')
-def main():
+@app.route('/addConstraint', methods = ["POST"])
+def addConstraint():
+	# Validate that this amn exists
+	amn = flask.request.json.get("airman")
+	cur.execute("select count(*) from users where name=%s;", (amn,))
+	conn.commit()
+	if cur.fetchall()[0][0] == 0:
+		return flask.jsonify({"Status":"Error", "Msg":"Airman %s not found." % amn})
+
+	# Validate that this billet exists.
+	bil = flask.request.json.get("billet")
+	# Validate that this amn exists
+	cur.execute("select count(*) from billetdescs where posn=%s;", (bil,))
+	conn.commit()
+	if cur.fetchall()[0][0] == 0:
+		return flask.jsonify({"Status":"Error", "Msg":"Billet %s not found." % bil})
+
+	# Validate teh constraint type
+	constr = flask.request.json.get("constr")
+	if constr not in constraints: 
+		return flask.jsonify({"Status":"Error", "Msg":"Constr %s not supported." % constr})
+
+	cur.execute("insert into constraints values (%s, %s, %s);", (amn, bil, constr))
+	conn.commit() 
+	return flask.jsonify({"Status": "Success"})
+
+@app.route('/delConstraint', methods = ["POST"])
+def delConstraint():
+	amn = flask.request.json.get("airman")
+	bil = flask.request.json.get("billet")
+	constr = flask.request.json.get("constr")
+	#try:
+	cur.execute("delete from constraints where name=%s and posn=%s and constr=%s;", (amn, bil, constr))
+	print cur.query
+	conn.commit()
+	#except Exception as e:
+	#	return flask.jsonify({"Status": "SQL Error"}) 
+	return flask.jsonify({"Status": "Success"})
+
+@app.route("/optimize", methods = ["GET"])
+def optimize():
+
+	cur.execute("truncate table matches;")
+	conn.commit()
 
 	cur.execute("select * from airmen;")
-	airmen = cur.fetchall()
-	cur.execute("select left(name, 4), afsc, aad from billets;")
-	billets = cur.fetchall()
+	airmen_tmp = cur.fetchall()
 
-	return flask.render_template("main.html", airmen=airmen, billets=billets, matches = [])
+	airmen = {}
+	for airman in airmen_tmp:
+		airmen[airman[0]] = dict(
+			afsc = airman[1],
+			aad  = airman[2],
+			grade= airman[3]
+		)
 
-@app.route('/updateSize')
-def updateSize():
+	cur.execute("select * from billets;")
+	billets_tmp = cur.fetchall()
 
-	cur.execute("select count(*) from airmen;")
-	res = cur.fetchone()
-	n = res[0]
-
-	cur.execute("select count(*) from billets;")
-	res = cur.fetchone()
-	m = res[0]
-
-	# return 'Hello World from Flask! y=' + str(y.varValue)
-	return flask.render_template("updateSize.html", n = n, m = m)
-
-@app.route("/refresh", methods = ["POST"])
-def refresh():
-	n = int(flask.request.form["n"])
-	m = int(flask.request.form["m"])
-	## Init our database.
-	cur.execute("drop table if exists airmen;")
-	conn.commit()
-	cur.execute("""create table airmen (
-		name varchar(50),
-		afsc varchar(3),
-		aad varchar(3));""")
-	conn.commit()
-
-	cur.execute("drop table if exists billets;")
-	conn.commit()
-	cur.execute("""create table billets (
-		name varchar(50),
-		afsc varchar(3),
-		aad varchar(3));""")
-	conn.commit()
-
-	allowable_afscs = ["61A", "61C", "61D"]
-	allowable_aads  = ["BS", "MS", "PhD"]
-
-	namelist = []
-	billets = []
-
-	for i in range(n):
-		name = names.get_full_name()
-		namelist.append(name)
-		cur.execute("insert into airmen values (%s, %s, %s)", 
-			(
-				name,
-				random.choice(allowable_afscs), 
-				random.choice(allowable_aads)
-			))
-		conn.commit()
-
-	for i in range(m):
-		billet = hash(names.get_full_name())
-		billets.append(billet)
-		cur.execute("insert into billets values (%s, %s, %s)", 
-			(
-				billet, 
-				random.choice(allowable_afscs),
-				random.choice(allowable_aads)
-			))
-		conn.commit()
-
-	# Randomly generate preferences
-	cur.execute("drop table if exists amnPrefs;")
-	conn.commit()
-	cur.execute("""create table amnPrefs (
-			amn varchar(50),
-			bil varchar(50),
-			pref int);
-		""")
-	conn.commit()
-
-	cur.execute("drop table if exists bilPrefs;")
-	conn.commit()
-	cur.execute("""create table bilPrefs (
-			amn varchar(50),
-			bil varchar(50),
-			pref int);
-		""")
-	conn.commit()
-
-	for amn in namelist:
-		remaining_billets = billets[:] # get copy of list, not reference.
-		for i in range(random.randint(1, 10)):
-			choice = random.choice(remaining_billets)
-			remaining_billets.remove(choice)
-			cur.execute("insert into amnPrefs values (%s, %s, %s)", (amn, choice, i+1))
-			conn.commit()
-
-	for bil in billets:
-		remaining_amn = namelist[:] # get copy of list, not reference. 
-		for i in range(random.randint(1, 10)):
-			choice = random.choice(remaining_amn)
-			remaining_amn.remove(choice)
-			cur.execute("insert into amnPrefs values (%s, %s, %s)", (choice, bil, i+1))
-			conn.commit()
+	billets = {}
+	for billet in billets_tmp:
+		billets[billet[0]] = dict(
+			afsc = billet[1],
+			aad  = billet[2],
+			grade= billet[3]
+		)
 
 
-	return flask.redirect("/")
+	cur.execute("select * from amnprefs order by amn, pref;")
+	amnPrefs_tmp = cur.fetchall()
 
+	amnPrefs = {}
+	for pref in amnPrefs_tmp:
+		if pref[0] not in amnPrefs.keys():
+			amnPrefs[pref[0]] = dict()
+		amnPrefs[pref[0]][pref[1]] = pref[2]
+
+	cur.execute("select * from bilprefs order by bil, pref;")
+	bilPrefs_tmp = cur.fetchall()
+
+	bilPrefs = {}
+	for pref in bilPrefs_tmp:
+		if pref[1] not in bilPrefs.keys():
+			bilPrefs[pref[1]] = dict()
+		bilPrefs[pref[1]][pref[0]] = pref[2]
+
+	#cur.execute("select * from constraints;")
+	#constraints = cur.fetchall()
+
+	m = LpProblem("", LpMinimize)
+	#matches = LpVariable.dicts("matches", [x for x in itertools.product(airmen.keys(), billets.keys())], 0, 1, LpInteger)
+	matches = LpVariable.dicts("matches", (airmen.keys(), billets.keys()), 0, 1, LpInteger)
+
+	# Define our objective function
+
+	obj = 0.0
+	for airman in airmen:
+		for billet in billets:
+			if billet in amnPrefs[airman].keys():
+				amnPref = amnPrefs[airman][billet]
+			else: 
+				amnPref = 15
+			if airman in bilPrefs[billet].keys():
+				bilPref = bilPrefs[billet][airman]
+			else:
+				bilPref = 15
+
+			out = float(amnPref + bilPref)
+
+			airmand = airmen[airman]
+			billetd = billets[billet]
+
+			if airmand["grade"] == billetd["grade"] and \
+			   airmand["aad"]   == billetd["aad"] and \
+			   airmand["afsc"]  == billetd["afsc"]:
+			   out *= 0.9
+			obj += out * matches[airman][billet]
+	
+	m += obj
+
+	for airman in airmen:
+		m += lpSum([matches[airman][billet] for billet in billets]) == 1
+
+	for billet in billets:
+		m += lpSum([matches[airman][billet] for airman in airmen]) <= 1
+
+	m.solve()
+	print "Status:" + str(LpStatus[m.status])
+
+	matches_dict = {}
+	for airman in airmen:
+		for billet in billets:
+			if value(matches[airman][billet]) > 0.0:
+				matches_dict[airman] = billet
+				cur.execute("insert into matches values (%s, %s)", (airman, billet))
+				conn.commit()
+
+	return flask.jsonify({"Status":"Success", "matches":matches_dict})
 # Final run.
 port = os.getenv('PORT', '8000')
 if __name__ == "__main__":
