@@ -1,0 +1,6 @@
+language: python
+services:
+- postgresql
+
+script: 
+- echo "Done"

@@ -24,10 +24,40 @@ else:
 	)
 cur = conn.cursor()
 
+cur.execute("select key from private_key;")
+key = cur.fetchall()[0][0]
+
+def authenticated(request):
+	return request.json.get("key", "") == key
+
 constraints = ["FORCE", "FORBID", "FILL", "VACATE"]
+
+@app.route('/')
+def index():
+    """GET to generate a list of endpoints and their docstrings. See https://github.com/jlepird/tm-backend/blob/master/tests.sh for API examples."""
+    urls = dict([(r.rule, flask.current_app.view_functions.get(r.endpoint).func_doc)
+                 for r in flask.current_app.url_map.iter_rules()
+                 if not r.rule.startswith('/static')])
+    return flask.render_template('index.html', urls=urls)
 
 @app.route('/addConstraint', methods = ["POST"])
 def addConstraint():
+	"""
+POST a JSON to add a constraint to the optimization algorithm. The JSON must have the following keys:
+	- key: The admin password.
+	- airman: The name of the affected Airman. 
+	- billet: The ID of the affected billet. 
+	- constr: The type of constraint. Can be either "FORCE", "FORBID", "FILL", or "VACATE". If "FILL" or "VACATE", then the "airmen" arg is ignored.
+
+This route returns a JSON with the following keys:
+	- Status: Either "Success" or "Error". 
+	- [Msg]: If error, contains error details.
+	"""
+
+	if not authenticated(flask.request):
+		return flask.jsonify({"Status":"Error", "Msg":"Incorrect key."})
+
+
 	# Validate that this amn exists
 	amn = flask.request.json.get("airman")
 	cur.execute("select count(*) from users where name=%s;", (amn,))
@@ -54,6 +84,22 @@ def addConstraint():
 
 @app.route('/delConstraint', methods = ["POST"])
 def delConstraint():
+	"""
+POST a JSON to remove a constraint to the optimization algorithm. The JSON must have the following keys:
+	- key: The admin password.
+	- airman: The name of the affected Airman. 
+	- billet: The ID of the affected billet. 
+	- constr: The type of constraint. Can be either "FORCE", "FORBID", "FILL", or "VACATE". If "FILL" or "VACATE", then the "airmen" arg is ignored.
+
+This route returns a JSON with the following keys:
+	- Status: Either "Success" or "Error". 
+	- [Msg]: If error, contains error details.
+	"""
+
+	if not authenticated(flask.request):
+		return flask.jsonify({"Status":"Error", "Msg":"Incorrect key."})
+
+
 	amn = flask.request.json.get("airman")
 	bil = flask.request.json.get("billet")
 	constr = flask.request.json.get("constr")
@@ -65,8 +111,20 @@ def delConstraint():
 	#	return flask.jsonify({"Status": "SQL Error"}) 
 	return flask.jsonify({"Status": "Success"})
 
-@app.route("/optimize", methods = ["GET"])
+@app.route("/optimize", methods = ["POST"])
 def optimize():
+	"""
+POST a JSON in the form {"key":[secret key]} to run the optimization. 
+
+This route returns a JSON with the following keys:
+	- Status: Either "Success" or "Error". 
+	- [Msg]: If error, contains error details.
+	- [matches]: If success, a dictionary of user->billet matches.
+	"""
+
+	if not authenticated(flask.request):
+		return flask.jsonify({"Status":"Error", "Msg":"Incorrect key."})
+
 
 	cur.execute("truncate table matches;")
 	conn.commit()
